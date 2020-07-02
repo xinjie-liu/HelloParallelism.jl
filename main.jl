@@ -1,30 +1,23 @@
 # Note: This script contains asynchronous green threading routines (tasks on a
 # single thread) as well as shared-memory paralellisim (traditional
-# multi-threading). There is also multi-process (workers/nodes) paralellisim via the
-# `Distributed` package but I did not have the time to include it here. The Channels
-# use will need to be a little bit different in that case. I in the context of
-# `Distributed` one would need to use `RemoteChannel` et al.
+# multi-threading).
+#
+# TODO: Distributed
 
-import Primes
+import Distributed
 
-const N_runs = 30
-const buffer_size = 100
-const consumer_sleep_time = 0.1
+const N_runs = 1000
+const buffer_size = 10
+const consumer_sleep_time = 0.01
 
 #====================== dumme work that we want to get done =======================#
-function some_work_that_takes_time(ch::Channel, id)
-    #    println("Started work for job $id on thread $(Threads.threadid())")
-    # sleep for some time (up to 1 second)
-    # compute some random stuff
-    result = Primes.prime(5*99999)
-    # post the result on the channel.
-    put!(ch, (;result, id, threadid=Threads.threadid()))
-end
 
-function consume(ch::Channel)
-    for result in ch
+Distributed.@everywhere include("worker_code.jl")
+
+function consume(channel)
+    println("Waiting for results.")
+    for result in channel
         println(result)
-        # lets assume there is some heavy post processing here
         sleep(consumer_sleep_time)
     end
 end
@@ -47,7 +40,7 @@ function run_green_threaded(; spawn=false)
     # channel is automatically closed when the Task finishes
     result_channel = Channel(buffer_size; spawn) do ch
         @sync for id in 1:N_runs
-            @async some_work_that_takes_time(ch, id)
+            @async put!(ch, some_work_that_takes_time(id))
         end
         println("joined again")
     end
@@ -75,12 +68,61 @@ function run_multithreaded()
         # alive until we are done.. This would not be the case if we were using
         # `@async`; (there we would need to @sync manually)
         Threads.@threads for id in 1:N_runs
-            some_work_that_takes_time(ch, id)
+            put!(ch, some_work_that_takes_time(id))
         end
         println("joined again")
     end
 
     # the for-loop automatically takes from `result_channel` until the task bound
     # the channel above finished. So no need to count here.
+    consume(result_channel)
+end
+
+#=== Distributed accross *processe*, potentially live on another machine (node)====#
+
+"Launch workers locally and remotely. Note that you may have to load the code on the
+launched workers explicity with `Distributed.@everywhere ...`."
+function launch_workers(;n_remote=:auto, n_local=10)
+    if n_remote == :auto || n_remote > 0
+        # rechenknecht node only works in HULKs network (VPN)
+        Distributed.addprocs([("10.2.24.6", n_remote)])
+    end
+    if use_local
+        Distributed.addprocs(n_local)
+    end
+end
+
+"Stop all workers."
+function stop_workers()
+    Distributed.rmprocs(Distributed.workers())
+end
+
+"""
+The multi-process version of paralellisim for distribution accross multiple
+machines.
+
+Note: In order for this to work, you need to launch workers with
+`Distributed.addprocs(cluster_manager)`.
+"""
+function run_distributed()
+    # This is a bit of an ugly way to do it since I'd rather prefer to use a
+    # `Distributed.RemoteChannel`. However, I can't find a way to hand a
+    # `RemoteChannel` to a worker, other than using a rather ugly `remote_do`
+    # construct. With `Distributed.@distributed` or `Distributed.@spawnat` the
+    # channel seems to be copied, not referenced (?)
+    # TODO: ask an discourse
+    #
+    # Create a manager task that asynchronously spawns tasks on workers and `put!`s
+    # the results in the managed channel. This way, we can reuse the entire
+    # `consume` logic from above (which does not seem to be possible if we used a
+    # `RemoteChannel` since a `RemoteChannel` is not iterable (and does not know if
+    # it's empty)
+    result_channel = Channel(buffer_size) do ch
+        @sync for id in 1:N_runs
+            @async put!(ch, Distributed.@fetch some_work_that_takes_time(id))
+        end
+        println("Joined again.")
+    end
+
     consume(result_channel)
 end
