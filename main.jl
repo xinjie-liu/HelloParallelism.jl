@@ -1,9 +1,3 @@
-# Note: This script contains asynchronous green threading routines (tasks on a
-# single thread) as well as shared-memory paralellisim (traditional
-# multi-threading).
-#
-# TODO: Distributed
-
 import Distributed
 
 const N_jobs = 100
