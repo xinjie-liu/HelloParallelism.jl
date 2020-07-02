@@ -6,20 +6,29 @@
 
 import Distributed
 
-const N_runs = 1000
-const buffer_size = 10
-const consumer_sleep_time = 0.01
+const N_jobs = 100
+const buffer_size = 100
+const consumer_sleep_time = 0.0
 
 #====================== dumme work that we want to get done =======================#
 
 Distributed.@everywhere include("worker_code.jl")
 
 function consume(channel)
-    println("Waiting for results.")
+    println("Waiting for results...")
     for result in channel
         println(result)
         sleep(consumer_sleep_time)
     end
+end
+
+function consume_unmanaged(channel, Ntake)
+    println("Waiting for results...")
+    for _ in 1:Ntake
+        println(take!(channel))
+        sleep(consumer_sleep_time)
+    end
+    close(channel)
 end
 
 #=============== Tasks/Coroutines: (green) threads on a single core ===============#
@@ -39,8 +48,8 @@ function run_green_threaded(; spawn=false)
     # create a task from the anonymous function bound to a Channel such that the
     # channel is automatically closed when the Task finishes
     result_channel = Channel(buffer_size; spawn) do ch
-        @sync for id in 1:N_runs
-            @async put!(ch, some_work_that_takes_time(id))
+        @sync for job_id in 1:N_jobs
+            @async put!(ch, some_work_that_takes_time(job_id))
         end
         println("joined again")
     end
@@ -67,8 +76,8 @@ function run_multithreaded()
         # joined before exiting the anonymous function and hence keeps the channel
         # alive until we are done.. This would not be the case if we were using
         # `@async`; (there we would need to @sync manually)
-        Threads.@threads for id in 1:N_runs
-            put!(ch, some_work_that_takes_time(id))
+        Threads.@threads for job_id in 1:N_jobs
+            put!(ch, some_work_that_takes_time(job_id))
         end
         println("joined again")
     end
@@ -82,14 +91,18 @@ end
 
 "Launch workers locally and remotely. Note that you may have to load the code on the
 launched workers explicity with `Distributed.@everywhere ...`."
-function launch_workers(;n_remote=:auto, n_local=10)
-    if n_remote == :auto || n_remote > 0
+function start_workers(;n_remote=:auto, n_local=10)
+    usable(n) = n == :auto || n > 0
+
+    if usable(n_remote)
         # rechenknecht node only works in HULKs network (VPN)
         Distributed.addprocs([("10.2.24.6", n_remote)])
     end
-    if use_local
+    if usable(n_local)
         Distributed.addprocs(n_local)
     end
+
+    Distributed.workers()
 end
 
 "Stop all workers."
@@ -101,10 +114,13 @@ end
 The multi-process version of paralellisim for distribution accross multiple
 machines.
 
-Note: In order for this to work, you need to launch workers with
-`Distributed.addprocs(cluster_manager)`.
+This version uses a manager task that fetches the results form the workers
+and `put!`s them on the `result_channel`.
+
+Note: In order for this to work, you need to launch workers with; e.g. with
+`start_workers` above.
 """
-function run_distributed()
+function run_distributed_fetch(spawn=true)
     # This is a bit of an ugly way to do it since I'd rather prefer to use a
     # `Distributed.RemoteChannel`. However, I can't find a way to hand a
     # `RemoteChannel` to a worker, other than using a rather ugly `remote_do`
@@ -117,11 +133,63 @@ function run_distributed()
     # `consume` logic from above (which does not seem to be possible if we used a
     # `RemoteChannel` since a `RemoteChannel` is not iterable (and does not know if
     # it's empty)
-    result_channel = Channel(buffer_size) do ch
-        @sync for id in 1:N_runs
-            @async put!(ch, Distributed.@fetch some_work_that_takes_time(id))
+    result_channel = Channel(buffer_size; spawn) do ch
+        @sync for job_id in 1:N_jobs
+            @async put!(ch, Distributed.@fetch some_work_that_takes_time(job_id))
         end
-        println("Joined again.")
+        println("joined again.")
+    end
+
+    consume(result_channel)
+end
+
+"""
+An alternative version where we use a remote channel to communicate the results
+diretectly from the workers. This seems to be less afficient than
+`run_distributed_fetch`.
+"""
+function run_distributed_remotechannel()
+    result_channel = Distributed.RemoteChannel(()->Channel(buffer_size))
+    Distributed.@distributed for job_id in 1:N_jobs
+        put!(result_channel, some_work_that_takes_time(job_id))
+    end
+
+    consume_unmanaged(result_channel, N_jobs)
+end
+
+#============================ multi-level parallelism =============================#
+
+"""
+Run on multiple workers but have only *one worker per node* and and achive
+node-internal parallelism through threading.
+
+NOTE: This actually taks more time than pure distributed code.
+"""
+function run_multilevel_parallel()
+    result_channel = Distributed.RemoteChannel(()->Channel(buffer_size))
+
+    # note: this does not consider the number of threads per node. Thus, it is
+    # likely slower. Also coordinating on a single `result_channel` from many
+    # threads may slow things down.
+    Distributed.@distributed for job_id in 1:N_jobs
+        Threads.@spawn put!(result_channel, some_work_that_takes_time(job_id))
+    end
+
+    consume_unmanaged(result_channel, N_jobs)
+end
+
+# This version seems better but does not run somehow.
+# TODO: ask on discourse
+function run_multilevel_parallel2()
+    result_channel = Channel(buffer_size) do ch
+        @sync for job_id in 1:N_jobs
+            @async begin
+                result = Distributed.@fetch begin
+                    fetch(Threads.@spawn(some_work_that_takes_time(job_id)))
+                end
+                put!(ch, result)
+            end
+        end
     end
 
     consume(result_channel)
