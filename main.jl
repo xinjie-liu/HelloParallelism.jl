@@ -1,12 +1,12 @@
 import Distributed
 
-const N_jobs = 100
-const buffer_size = 100
+const N_jobs = 30
+const buffer_size = 10
 const consumer_sleep_time = 0.0
 
 #====================== dumme work that we want to get done =======================#
 
-Distributed.@everywhere include("worker_code.jl")
+include("worker_code.jl")
 
 function consume(channel)
     println("Waiting for results...")
