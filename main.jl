@@ -1,7 +1,7 @@
 import Distributed
 
-const N_jobs = 30
-const buffer_size = 10
+const N_jobs = 100
+const buffer_size = 100
 const consumer_sleep_time = 0.0
 
 #====================== dumme work that we want to get done =======================#
@@ -38,7 +38,7 @@ This is a good idea if `some_work_that_takes_time` requires some heavy lifting (
 just `sleep`ing) since otherwise the main thread may be to busy to ever consume the
 results.
 """
-function run_green_threaded(; spawn=false)
+function run_green_threaded(; spawn = false)
     # create a task from the anonymous function bound to a Channel such that the
     # channel is automatically closed when the Task finishes
     result_channel = Channel(buffer_size; spawn) do ch
@@ -85,12 +85,21 @@ end
 
 "Launch workers locally and remotely. Note that you may have to load the code on the
 launched workers explicity with `Distributed.@everywhere ...`."
-function start_workers(;n_remote=:auto, n_local=10)
+function start_workers(; n_remote = :auto, n_local = 0)
     usable(n) = n == :auto || n > 0
 
     if usable(n_remote)
         # rechenknecht node only works in HULKs network (VPN)
-        Distributed.addprocs([("10.2.24.6", n_remote)])
+        Distributed.addprocs([
+            ("bonn-201", n_remote),
+            ("bonn-202", n_remote),
+            ("bonn-203", n_remote),
+            ("bonn-204", n_remote),
+            ("bonn-221", n_remote),
+            ("bonn-222", n_remote),
+            ("bonn-223", n_remote),
+            ("bonn-224", n_remote),
+        ])
     end
     if usable(n_local)
         Distributed.addprocs(n_local)
@@ -114,7 +123,7 @@ and `put!`s them on the `result_channel`.
 Note: In order for this to work, you need to launch workers with; e.g. with
 `start_workers` above.
 """
-function run_distributed_fetch(spawn=true)
+function run_distributed_fetch(spawn = true)
     # This is a bit of an ugly way to do it since I'd rather prefer to use a
     # `Distributed.RemoteChannel`. However, I can't find a way to hand a
     # `RemoteChannel` to a worker, other than using a rather ugly `remote_do`
@@ -143,7 +152,7 @@ diretectly from the workers. This seems to be less afficient than
 `run_distributed_fetch`.
 """
 function run_distributed_remotechannel()
-    result_channel = Distributed.RemoteChannel(()->Channel(buffer_size))
+    result_channel = Distributed.RemoteChannel(() -> Channel(buffer_size))
     Distributed.@distributed for job_id in 1:N_jobs
         put!(result_channel, some_work_that_takes_time(job_id))
     end
@@ -160,7 +169,7 @@ node-internal parallelism through threading.
 NOTE: This actually taks more time than pure distributed code.
 """
 function run_multilevel_parallel()
-    result_channel = Distributed.RemoteChannel(()->Channel(buffer_size))
+    result_channel = Distributed.RemoteChannel(() -> Channel(buffer_size))
 
     # note: this does not consider the number of threads per node. Thus, it is
     # likely slower. Also coordinating on a single `result_channel` from many
