@@ -1,4 +1,5 @@
 import Distributed
+import ProgressMeter
 
 const N_jobs = 100
 const buffer_size = 100
@@ -85,21 +86,30 @@ end
 
 "Launch workers locally and remotely. Note that you may have to load the code on the
 launched workers explicity with `Distributed.@everywhere ...`."
-function start_workers(; n_remote = :auto, n_local = 0)
+function start_workers(;
+    n_remote = :auto,
+    n_local = 0,
+    # NOTE: only the ssh tunnel is relevant for connecting to IPB remotely. `topology =
+    # master_worker` seems neccessary to get ssh multi-plexing to work.
+    config = (; tunnel = true, topology = :master_worker),
+)
     usable(n) = n == :auto || n > 0
 
     if usable(n_remote)
         # rechenknecht node only works in HULKs network (VPN)
         Distributed.addprocs([
-            ("bonn-201", n_remote),
-            ("bonn-202", n_remote),
-            ("bonn-203", n_remote),
-            ("bonn-204", n_remote),
-            ("bonn-221", n_remote),
-            ("bonn-222", n_remote),
-            ("bonn-223", n_remote),
-            ("bonn-224", n_remote),
-        ])
+            ("bonn-201-remote", n_remote),
+            ("bonn-202-remote", n_remote),
+            ("bonn-203-remote", n_remote),
+            ("bonn-204-remote", n_remote),
+            ("bonn-221-remote", n_remote),
+            ("bonn-222-remote", n_remote),
+            ("bonn-223-remote", n_remote),
+            ("bonn-224-remote", n_remote),
+            ("bonn-student-81-remote", n_remote),
+            ("bonn-student-82-remote", n_remote),
+            ("bonn-student-83-remote", n_remote),
+        ]; config...)
     end
     if usable(n_local)
         Distributed.addprocs(n_local)
@@ -148,7 +158,7 @@ end
 
 """
 An alternative version where we use a remote channel to communicate the results
-diretectly from the workers. This seems to be less afficient than
+diretectly from the workers. This seems to be less efficient than
 `run_distributed_fetch`.
 """
 function run_distributed_remotechannel()
