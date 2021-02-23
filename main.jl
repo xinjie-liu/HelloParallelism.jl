@@ -98,17 +98,22 @@ function start_workers(;
     if usable(n_remote)
         # rechenknecht node only works in HULKs network (VPN)
         Distributed.addprocs([
-            ("bonn-201-remote", n_remote),
-            ("bonn-202-remote", n_remote),
-            ("bonn-203-remote", n_remote),
-            ("bonn-204-remote", n_remote),
-            ("bonn-221-remote", n_remote),
-            ("bonn-222-remote", n_remote),
-            ("bonn-223-remote", n_remote),
-            ("bonn-224-remote", n_remote),
+            # ("bonn-201-remote", n_remote),
+            # ("bonn-202-remote", n_remote),
+            # ("bonn-203-remote", n_remote),
+            # ("bonn-204-remote", n_remote),
+            # ("bonn-221-remote", n_remote),
+            # ("bonn-222-remote", n_remote),
+            # ("bonn-223-remote", n_remote),
+            # ("bonn-224-remote", n_remote),
             ("bonn-student-81-remote", n_remote),
             ("bonn-student-82-remote", n_remote),
             ("bonn-student-83-remote", n_remote),
+            #("bonn-student-84-remote", n_remote),
+            ("bonn-student-85-remote", n_remote),
+            ("bonn-student-86-remote", n_remote),
+            #("bonn-student-87-remote", n_remote),
+            ("bonn-student-89-remote", n_remote),
         ]; config...)
     end
     if usable(n_local)
