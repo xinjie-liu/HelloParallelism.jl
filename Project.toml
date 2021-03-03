@@ -1,5 +1,6 @@
 [deps]
 Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
+Distributor = "a14d8946-8bfd-45f9-bc07-790c719c043c"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 
 [compat]
