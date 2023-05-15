@@ -1,8 +1,9 @@
+module HelloParallelism
+
 import Distributed
-import Distributor
 import ProgressMeter
 
-const N_jobs = 100
+const N_jobs = 1000
 const buffer_size = 100
 const consumer_sleep_time = 0.0
 
@@ -40,7 +41,7 @@ This is a good idea if `some_work_that_takes_time` requires some heavy lifting (
 just `sleep`ing) since otherwise the main thread may be to busy to ever consume the
 results.
 """
-function run_green_threaded(; spawn = false)
+function run_green_threaded(; spawn=true)
     # create a task from the anonymous function bound to a Channel such that the
     # channel is automatically closed when the Task finishes
     result_channel = Channel(buffer_size; spawn) do ch
@@ -56,8 +57,13 @@ end
 #=================== Multithreading with shared-memory threads ====================#
 
 """
-Multithreading 1: same as above buth with `Threads.@threads` annotation on the
+Multithreading 1: same as above but with `Threads.@threads` annotation on the
 Channel task.
+
+This yields shared-memory parallelism on a single machine. Note that the threads are already spawned by Julia at startup.
+However, `Threads.@threads` spawn tasks on these exisitng threads.
+
+As a result, this is much faster than spawning a new thread in, for example, C++ (because the creation of the thread is what takes time)
 
 Warning: this does *not* reliably work if `spawn` is set to true since
 `Threads.@threads` can only spawn new threads from `threadid()==1`
@@ -83,19 +89,20 @@ function run_multithreaded()
     consume(result_channel)
 end
 
-#=== Distributed accross *processe*, potentially live on another machine (node)====#
+#=== Distributed across *process*, potentially live on another machine (node)====#
 
 """
-The multi-process version of paralellisim for distribution accross multiple
-machines.
+The multi-process version of parallelisim for distribution across multiple
+machines. This also has the advantage that memory is not shared.
+Hence, this paradigm can be of benefit if we want to parallelize calls to non-thread-safe libs like PATHSolver.jl
 
-This version uses a manager task that fetches the results form the workers
+This version uses a manager task that fetches the results from the workers
 and `put!`s them on the `result_channel`.
 
 Note: In order for this to work, you need to launch workers with; e.g. with
 `start_workers` above.
 """
-function run_distributed_fetch(spawn = true)
+function run_distributed_fetch(spawn=true)
     # This is a bit of an ugly way to do it since I'd rather prefer to use a
     # `Distributed.RemoteChannel`. However, I can't find a way to hand a
     # `RemoteChannel` to a worker, other than using a rather ugly `remote_do`
@@ -138,7 +145,7 @@ end
 Run on multiple workers but have only *one worker per node* and and achive
 node-internal parallelism through threading.
 
-NOTE: This actually taks more time than pure distributed code.
+NOTE: This actually takes more time than pure distributed code.
 """
 function run_multilevel_parallel()
     result_channel = Distributed.RemoteChannel(() -> Channel(buffer_size))
@@ -168,4 +175,6 @@ function run_multilevel_parallel2()
     end
 
     consume(result_channel)
+end
+
 end
