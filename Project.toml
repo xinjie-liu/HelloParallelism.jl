@@ -6,6 +6,7 @@ version = "0.1.0"
 [deps]
 Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 StableRNGs = "860ef19b-820b-49d6-a774-d7a799459cd3"
+TensorGames = "dad72d94-522a-402a-84d3-a630e8ffd4d6"
 
 [compat]
 julia = "1.5"

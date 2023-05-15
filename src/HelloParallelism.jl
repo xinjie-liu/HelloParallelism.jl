@@ -1,6 +1,7 @@
 module HelloParallelism
 using Distributed: Distributed
 using StableRNGs: StableRNGs
+using TensorGames: TensorGames
 
 function __init__()
     # make sure we have a worker pool
@@ -11,7 +12,7 @@ function __init__()
     end
 end
 
-const N_jobs = 10000
+const N_jobs = 1000
 const buffer_size = 100
 const consumer_sleep_time = 0.0
 
@@ -36,10 +37,10 @@ function consume_unmanaged(channel, Ntake)
     close(channel)
 end
 
-function naive_pmap()
+function run_naive_pmap(; kwargs...)
     job_ids = 1:N_jobs
     Distributed.pmap(job_ids) do id
-        some_work_that_takes_time(id)
+        some_work_that_takes_time(id; kwargs...)
     end
 end
 
@@ -56,12 +57,12 @@ This is a good idea if `some_work_that_takes_time` requires some heavy lifting (
 just `sleep`ing) since otherwise the main thread may be to busy to ever consume the
 results.
 """
-function run_green_threaded(; spawn=true)
+function run_green_threaded(; spawn=true, kwargs...)
     # create a task from the anonymous function bound to a Channel such that the
     # channel is automatically closed when the Task finishes
     result_channel = Channel(buffer_size; spawn) do ch
         @sync for job_id in 1:N_jobs
-            @async put!(ch, some_work_that_takes_time(job_id))
+            @async put!(ch, some_work_that_takes_time(job_id; kwargs...))
         end
         println("joined again")
     end
@@ -83,7 +84,7 @@ As a result, this is much faster than spawning a new thread in, for example, C++
 Warning: this does *not* reliably work if `spawn` is set to true since
 `Threads.@threads` can only spawn new threads from `threadid()==1`
 """
-function run_multithreaded()
+function run_multithreaded(; kwargs...)
     # create a manager task from the anonymous function bound to a Channel such that the
     # channel is automatically closed when the manager task finishes
     # all this task does is spawn a bunch of tasks on different threads and wait for
@@ -94,7 +95,7 @@ function run_multithreaded()
         # alive until we are done.. This would not be the case if we were using
         # `@async`; (there we would need to @sync manually)
         Threads.@threads for job_id in 1:N_jobs
-            put!(ch, some_work_that_takes_time(job_id))
+            put!(ch, some_work_that_takes_time(job_id; kwargs...))
         end
         println("joined again")
     end
@@ -117,7 +118,7 @@ and `put!`s them on the `result_channel`.
 Note: In order for this to work, you need to launch workers with; e.g. with
 `start_workers` above.
 """
-function run_distributed_fetch(spawn=true)
+function run_distributed_fetch(; spawn=true, kwargs...)
     # This is a bit of an ugly way to do it since I'd rather prefer to use a
     # `Distributed.RemoteChannel`. However, I can't find a way to hand a
     # `RemoteChannel` to a worker, other than using a rather ugly `remote_do`
@@ -132,7 +133,7 @@ function run_distributed_fetch(spawn=true)
     # it's empty)
     result_channel = Channel(buffer_size; spawn) do ch
         @sync for job_id in 1:N_jobs
-            @async put!(ch, Distributed.@fetch some_work_that_takes_time(job_id))
+            @async put!(ch, Distributed.@fetch some_work_that_takes_time(job_id; kwargs...))
         end
         println("joined again.")
     end
@@ -145,10 +146,10 @@ An alternative version where we use a remote channel to communicate the results
 diretectly from the workers. This seems to be less efficient than
 `run_distributed_fetch`.
 """
-function run_distributed_remotechannel()
+function run_distributed_remotechannel(; kwargs...)
     result_channel = Distributed.RemoteChannel(() -> Channel(buffer_size))
     Distributed.@distributed for job_id in 1:N_jobs
-        put!(result_channel, some_work_that_takes_time(job_id))
+        put!(result_channel, some_work_that_takes_time(job_id; kwargs...))
     end
 
     consume_unmanaged(result_channel, N_jobs)
@@ -162,14 +163,14 @@ node-internal parallelism through threading.
 
 NOTE: This actually takes more time than pure distributed code.
 """
-function run_multilevel_parallel()
+function run_multilevel_parallel(; kwargs...)
     result_channel = Distributed.RemoteChannel(() -> Channel(buffer_size))
 
     # note: this does not consider the number of threads per node. Thus, it is
     # likely slower. Also coordinating on a single `result_channel` from many
     # threads may slow things down.
     Distributed.@distributed for job_id in 1:N_jobs
-        Threads.@spawn put!(result_channel, some_work_that_takes_time(job_id))
+        Threads.@spawn put!(result_channel, some_work_that_takes_time(job_id; kwargs...))
     end
 
     consume_unmanaged(result_channel, N_jobs)
@@ -177,12 +178,12 @@ end
 
 # This version seems better but does not run somehow.
 # TODO: ask on discourse
-function run_multilevel_parallel2()
+function run_multilevel_parallel2(; kwargs...)
     result_channel = Channel(buffer_size) do ch
         @sync for job_id in 1:N_jobs
             @async begin
                 result = Distributed.@fetch begin
-                    fetch(Threads.@spawn(some_work_that_takes_time(job_id)))
+                    fetch(Threads.@spawn(some_work_that_takes_time(job_id; kwargs...)))
                 end
                 put!(ch, result)
             end
