@@ -1,9 +1,17 @@
 module HelloParallelism
+using Distributed: Distributed
+using StableRNGs: StableRNGs
 
-import Distributed
-import ProgressMeter
+function __init__()
+    # make sure we have a worker pool
+    if Distributed.nworkers() <= 1
+        @info "Starting workers..."
+        Distributed.addprocs()
+        @info "$(Distributed.nworkers()) workers available."
+    end
+end
 
-const N_jobs = 1000
+const N_jobs = 10000
 const buffer_size = 100
 const consumer_sleep_time = 0.0
 
@@ -26,6 +34,13 @@ function consume_unmanaged(channel, Ntake)
         sleep(consumer_sleep_time)
     end
     close(channel)
+end
+
+function naive_pmap()
+    job_ids = 1:N_jobs
+    Distributed.pmap(job_ids) do id
+        some_work_that_takes_time(id)
+    end
 end
 
 #=============== Tasks/Coroutines: (green) threads on a single core ===============#

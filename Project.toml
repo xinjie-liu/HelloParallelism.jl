@@ -5,7 +5,7 @@ version = "0.1.0"
 
 [deps]
 Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
-ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+StableRNGs = "860ef19b-820b-49d6-a774-d7a799459cd3"
 
 [compat]
 julia = "1.5"
