@@ -44,6 +44,12 @@ function run_naive_pmap(; kwargs...)
     end
 end
 
+function run_single_processed_jobs(; kwargs...)
+    map(1:N_jobs) do id
+        some_work_that_takes_time(id; kwargs...)
+    end
+end
+
 #=============== Tasks/Coroutines: (green) threads on a single core ===============#
 """
 Green Threading: green threading with a task bound to channel for automatic
